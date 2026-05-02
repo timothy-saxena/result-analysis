@@ -8,7 +8,7 @@
  * @param {Array} results - rows from results table for one semester
  * @returns {number} SGPA rounded to 2 decimal places, or 0 if no valid credits
  */
-const calculateSGPA = (results) => {
+/* const calculateSGPA = (results) => {
   let totalWeighted = 0;
   let totalCredits  = 0;
 
@@ -22,15 +22,37 @@ const calculateSGPA = (results) => {
   if (totalCredits === 0) return 0;
   return parseFloat((totalWeighted / totalCredits).toFixed(2));
 };
+ */
+const calculateSGPA = (results) => {
+    let totalWeighted = 0;
+    let totalCredits = 0;
 
+    for (const row of results) {
+        const credits = Number(row.credits);
+        let gradePoints = Number(row.grade_points);
+
+        // Skip invalid credits
+        if (!credits || credits <= 0) continue;
+
+        // Fix invalid grade_points
+        if (isNaN(gradePoints)) gradePoints = 0;
+
+        totalWeighted += gradePoints * credits;
+        totalCredits += credits;
+    }
+
+    if (totalCredits === 0) return 0;
+
+    return parseFloat((totalWeighted / totalCredits).toFixed(2));
+};
 /**
  * Calculate CGPA across all semesters
  * @param {Array} allResults - all result rows for a student (multiple semesters)
  * @returns {number} CGPA rounded to 2 decimal places
  */
 const calculateCGPA = (allResults) => {
-  // Reuse same logic as SGPA — just pass all rows together
-  return calculateSGPA(allResults);
+    // Reuse same logic as SGPA — just pass all rows together
+    return calculateSGPA(allResults);
 };
 
 /**
@@ -39,12 +61,12 @@ const calculateCGPA = (allResults) => {
  * @returns {Object} { semesterNumber: [rows] }
  */
 const groupBySemester = (allResults) => {
-  return allResults.reduce((acc, row) => {
-    const sem = row.semester;
-    if (!acc[sem]) acc[sem] = [];
-    acc[sem].push(row);
-    return acc;
-  }, {});
+    return allResults.reduce((acc, row) => {
+        const sem = row.semester;
+        if (!acc[sem]) acc[sem] = [];
+        acc[sem].push(row);
+        return acc;
+    }, {});
 };
 
 /**
@@ -53,13 +75,13 @@ const groupBySemester = (allResults) => {
  * @returns {Array} [{ semester, sgpa }, ...]
  */
 const getSGPAPerSemester = (allResults) => {
-  const grouped = groupBySemester(allResults);
-  return Object.entries(grouped)
-    .map(([sem, rows]) => ({
-      semester: parseInt(sem),
-      sgpa: calculateSGPA(rows),
-    }))
-    .sort((a, b) => a.semester - b.semester);
+    const grouped = groupBySemester(allResults);
+    return Object.entries(grouped)
+        .map(([sem, rows]) => ({
+            semester: parseInt(sem),
+            sgpa: calculateSGPA(rows),
+        }))
+        .sort((a, b) => a.semester - b.semester);
 };
 
 /**
@@ -68,7 +90,13 @@ const getSGPAPerSemester = (allResults) => {
  * @returns {Array} failed subject rows
  */
 const getFailedSubjects = (results) => {
-  return results.filter(r => r.grade_letter === 'F');
+    return results.filter((r) => r.grade_letter === "F");
 };
 
-module.exports = { calculateSGPA, calculateCGPA, getSGPAPerSemester, getFailedSubjects, groupBySemester };
+module.exports = {
+    calculateSGPA,
+    calculateCGPA,
+    getSGPAPerSemester,
+    getFailedSubjects,
+    groupBySemester,
+};

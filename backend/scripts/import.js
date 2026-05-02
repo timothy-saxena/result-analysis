@@ -5,7 +5,7 @@
  *
  * Convention: semester number is passed as argument (derived from filename context)
  */
-
+/* 
 const XLSX   = require('xlsx');
 const bcrypt = require('bcryptjs');
 const db     = require('../config/db');
@@ -104,6 +104,157 @@ const run = async () => {
     console.error('❌ Import failed:', err.message);
     process.exit(1);
   }
+};
+
+run();
+ */
+
+/**
+ * Import Script — Excel/CSV → MySQL
+ * Usage: node scripts/import.js <path-to-excel-file> <semester-number>
+ */
+
+const XLSX = require("xlsx");
+const bcrypt = require("bcryptjs");
+const db = require("../config/db");
+require("dotenv").config();
+const safeInt = (value) => {
+    if (value === null || value === undefined) return null;
+
+    const str = String(value).trim().toUpperCase();
+
+    if (
+        str === "" ||
+        str === "NA" ||
+        str === "MP" ||
+        str === "AB" ||
+        str === "--"
+    ) {
+        return null;
+    }
+
+    const num = Number(str);
+    return Number.isInteger(num) ? num : null;
+};
+const filePath = process.argv[2];
+const semester = parseInt(process.argv[3]);
+const batch = parseInt(process.argv[4]);
+
+if (!filePath || isNaN(semester) || isNaN(batch)) {
+    console.error("Usage: node scripts/import.js <file> <semester> <batch>");
+    process.exit(1);
+}
+// Normalize keys (handles extra spaces like "Course  Code")
+const normalize = (key) => key.trim().replace(/\s+/g, " ");
+
+// Infer student metadata
+const inferStudentMeta = (ht_no) => {
+    const roll = parseInt(ht_no.slice(-2));
+    const section =
+        roll <= 60
+            ? "CSE-1"
+            : roll <= 120
+              ? "CSE-2"
+              : roll <= 180
+                ? "CSE-3"
+                : "CSE-4";
+
+    return {
+        branch: "CSE",
+        year: Math.ceil(semester / 2),
+        section,
+    };
+};
+
+const run = async () => {
+    try {
+        console.log(`📂 Reading file: ${filePath}`);
+
+        const workbook = XLSX.readFile(filePath);
+        const sheetName = workbook.SheetNames[0];
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+        console.log(`📊 Found ${rows.length} rows in sheet: ${sheetName}`);
+
+        let inserted = 0;
+        let skipped = 0;
+        let newStudents = 0;
+
+        for (const row of rows) {
+            // Normalize row keys
+            const normalizedRow = {};
+            for (let key in row) {
+                normalizedRow[normalize(key)] = row[key];
+            }
+
+            const ht_no = String(normalizedRow["H.T. No."] || "").trim();
+            const course_code = String(
+                normalizedRow["Course Code"] || "",
+            ).trim();
+
+            if (!ht_no || !course_code) {
+                skipped++;
+                continue;
+            }
+
+            // Insert student if not exists
+            const [existing] = await db.query(
+                "SELECT ht_no FROM students WHERE ht_no = ?",
+                [ht_no],
+            );
+
+            if (existing.length === 0) {
+                const defaultPassword = `${ht_no}@123`;
+                const hash = await bcrypt.hash(defaultPassword, 10);
+                const meta = inferStudentMeta(ht_no);
+
+                await db.query(
+                    "INSERT INTO students (ht_no, password_hash, branch, year, section, batch) VALUES (?, ?, ?, ?, ?, ?)",
+                    [ht_no, hash, meta.branch, meta.year, meta.section, batch],
+                );
+                newStudents++;
+            }
+
+            // Insert or update result
+            await db.query(
+                `INSERT INTO results
+          (ht_no, semester, course_code, course_name, cie_marks, see_marks, total_marks, grade_letter, grade_points, credits)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+          course_name = VALUES(course_name),
+          cie_marks   = VALUES(cie_marks),
+          see_marks   = VALUES(see_marks),
+          total_marks = VALUES(total_marks),
+          grade_letter = VALUES(grade_letter),
+          grade_points = VALUES(grade_points),
+          credits      = VALUES(credits)`,
+                [
+                    ht_no,
+                    semester,
+                    course_code,
+                    String(normalizedRow["Course Name"] || "").trim(),
+                    safeInt(normalizedRow["CIE Marks"]),
+                    safeInt(normalizedRow["SEE Marks"]),
+                    safeInt(normalizedRow["Total Marks"]),
+                    String(normalizedRow["Grade Letter"] || "").trim(),
+                    parseFloat(normalizedRow["Grade Points"]) || 0,
+                    parseFloat(normalizedRow["Credits"]) || 0,
+                ],
+            );
+
+            inserted++;
+        }
+
+        console.log(`✅ Done!`);
+        console.log(`   → Rows processed : ${inserted}`);
+        console.log(`   → Rows skipped   : ${skipped}`);
+        console.log(`   → New students   : ${newStudents}`);
+
+        process.exit(0);
+    } catch (err) {
+        console.error("❌ Import failed:", err.message);
+        process.exit(1);
+    }
 };
 
 run();
