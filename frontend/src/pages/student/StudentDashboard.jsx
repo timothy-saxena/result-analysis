@@ -1,242 +1,462 @@
-import { useEffect, useState } from 'react';
-import { useAuth } from '../../context/AuthContext';
-import api from '../../utils/api';
-import { Line } from 'react-chartjs-2';
-import {
-  Chart as ChartJS, CategoryScale, LinearScale,
-  PointElement, LineElement, Tooltip, Legend, Filler
-} from 'chart.js';
-import { TrendingUp, Award, AlertTriangle, BookOpen } from 'lucide-react';
-import { Link } from 'react-router-dom';
+// src/pages/student/StudentDashboard.jsx
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
+import { useState, useEffect } from 'react';
+import { api, getUser, logout } from '../../utils/api';
 
-const gradeClass = (g) => {
-  if (!g) return '';
-  if (g === 'O')  return 'grade-O';
-  if (g === 'A+') return 'grade-Apl';
-  if (g === 'A')  return 'grade-A';
-  if (g === 'B')  return 'grade-B';
-  if (g === 'C')  return 'grade-C';
-  if (g === 'F')  return 'grade-F';
-  return '';
-};
+const ACCENT = '#00e5a0';
 
 export default function StudentDashboard() {
-  const { user } = useAuth();
-  const [cgpaData, setCgpa]     = useState(null);
-  const [sgpaData, setSgpa]     = useState([]);
-  const [failed, setFailed]     = useState([]);
-  const [recent, setRecent]     = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const user = getUser();
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [cgpaRes, sgpaRes, failedRes, resultsRes] = await Promise.all([
-          api.get('/student/cgpa'),
-          api.get('/student/sgpa'),
-          api.get('/student/failed'),
-          api.get('/student/results'),
-        ]);
-        setCgpa(cgpaRes.data);
-        setSgpa(sgpaRes.data);
-        setFailed(failedRes.data);
-        // Most recent semester's results
-        const allResults = resultsRes.data;
-        const maxSem = Math.max(...allResults.map(r => r.semester));
-        setRecent(allResults.filter(r => r.semester === maxSem));
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, []);
+  const [results,      setResults]      = useState([]);
+  const [sgpaList,     setSgpaList]     = useState([]);
+  const [cgpaData,     setCgpaData]     = useState(null);
+  const [failed,       setFailed]       = useState([]);
+  const [semester,     setSemester]     = useState('');
+  const [semesters,    setSemesters]    = useState([]);
+  const [activeTab,    setActiveTab]    = useState('results');
+  const [loading,      setLoading]      = useState(true);
+  const [dlLoading,    setDlLoading]    = useState(false);
 
-  const chartData = {
-    labels: sgpaData.map(s => `Sem ${s.semester}`),
-    datasets: [{
-      label: 'SGPA',
-      data: sgpaData.map(s => s.sgpa),
-      borderColor: '#2444e3',
-      backgroundColor: 'rgba(36,68,227,0.08)',
-      tension: 0.4,
-      fill: true,
-      pointBackgroundColor: '#2444e3',
-      pointRadius: 5,
-      pointHoverRadius: 7,
-    }]
-  };
+  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadResults(); }, [semester]);
 
-  const chartOptions = {
-    responsive: true,
-    plugins: { legend: { display: false } },
-    scales: {
-      y: {
-        min: 0, max: 10,
-        grid: { color: '#f1f5f9' },
-        ticks: { font: { family: 'DM Sans', size: 11 }, color: '#94a3b8' },
-      },
-      x: {
-        grid: { display: false },
-        ticks: { font: { family: 'DM Sans', size: 11 }, color: '#94a3b8' },
-      }
+  async function loadAll() {
+    try {
+      const [sgpa, cgpa, fail, allResults] = await Promise.all([
+        api.get('/student/sgpa'),
+        api.get('/student/cgpa'),
+        api.get('/student/failed'),
+        api.get('/student/results'),
+      ]);
+      setSgpaList(sgpa);
+      setCgpaData(cgpa);
+      setFailed(fail);
+      setResults(allResults);
+      // Extract unique semesters
+      const sems = [...new Set(allResults.map(r => r.semester))].sort((a,b) => a-b);
+      setSemesters(sems);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
-  };
+  }
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="flex flex-col items-center gap-3">
-        <div className="w-8 h-8 border-2 border-navy-600 border-t-transparent rounded-full animate-spin" />
-        <span className="text-sm text-slate-400">Loading your results...</span>
-      </div>
-    </div>
-  );
+  async function loadResults() {
+    try {
+      const url = semester ? `/student/results?semester=${semester}` : '/student/results';
+      const data = await api.get(url);
+      setResults(data);
+    } catch (err) { console.error(err); }
+  }
 
-  const maxSem = recent[0]?.semester;
+  async function downloadMarksheet(sem) {
+    setDlLoading(sem);
+    try {
+      const res  = await api.blob(`/student/marksheet/${sem}`);
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `marksheet_sem${sem}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { alert('Download failed: ' + err.message); }
+    finally { setDlLoading(false); }
+  }
+
+  if (loading) return <Loader />;
 
   return (
-    <div className="space-y-8 fade-in">
-      {/* Header */}
-      <div>
-        <h1 className="font-display text-3xl font-bold text-navy-950">
-          Welcome back
-        </h1>
-        <p className="text-slate-400 mt-1 font-mono text-sm">{user?.id}</p>
-      </div>
-
-      {/* Stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard
-          icon={<Award size={20} className="text-navy-600" />}
-          label="Overall CGPA"
-          value={cgpaData?.cgpa ?? '—'}
-          sub={`Out of 10.0`}
-          accent="bg-navy-50"
-        />
-        <StatCard
-          icon={<TrendingUp size={20} className="text-emerald-600" />}
-          label="Latest SGPA"
-          value={sgpaData.at(-1)?.sgpa ?? '—'}
-          sub={`Semester ${sgpaData.at(-1)?.semester ?? '—'}`}
-          accent="bg-emerald-50"
-        />
-        <StatCard
-          icon={<BookOpen size={20} className="text-sky-600" />}
-          label="Semesters Completed"
-          value={sgpaData.length}
-          sub="Recorded in system"
-          accent="bg-sky-50"
-        />
-        <StatCard
-          icon={<AlertTriangle size={20} className="text-red-500" />}
-          label="Failed Subjects"
-          value={cgpaData?.failed_count ?? 0}
-          sub={cgpaData?.failed_count === 0 ? 'All clear 🎉' : 'Needs attention'}
-          accent="bg-red-50"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* SGPA trend chart */}
-        <div className="card xl:col-span-2">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="font-display font-semibold text-navy-950 text-lg">SGPA Trend</h3>
-              <p className="text-slate-400 text-xs mt-0.5">Performance across semesters</p>
-            </div>
-          </div>
-          {sgpaData.length > 0 ? (
-            <Line data={chartData} options={chartOptions} />
-          ) : (
-            <div className="flex items-center justify-center h-40 text-slate-300 text-sm">No data yet</div>
-          )}
+    <div style={styles.shell}>
+      {/* Sidebar */}
+      <aside style={styles.sidebar}>
+        <div style={styles.logo}>
+          <span style={{ color: ACCENT }}>◈</span> MGIT Results Portal
+        </div>
+        <div style={{ color: '#555', fontSize: '0.65rem', letterSpacing: '0.12em', padding: '0 1.2rem', marginBottom: '1.5rem' }}>
+          STUDENT
+        </div>
+        <div style={{ color: '#aaa', fontSize: '0.78rem', padding: '0 1.2rem', marginBottom: '0.3rem' }}>
+          {user?.id}
+        </div>
+        <div style={{ color: '#555', fontSize: '0.7rem', padding: '0 1.2rem', marginBottom: '2rem' }}>
+          {user?.section || '—'}
         </div>
 
-        {/* Failed subjects panel */}
-        <div className="card">
-          <h3 className="font-display font-semibold text-navy-950 text-lg mb-1">Backlogs</h3>
-          <p className="text-slate-400 text-xs mb-5">Subjects with F grade</p>
-          {failed.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-32 text-center gap-2">
-              <div className="text-3xl">🎉</div>
-              <p className="text-sm text-slate-400">No failed subjects</p>
+        {[
+          { id: 'results',  label: 'Results'       },
+          { id: 'gpa',      label: 'GPA Overview'   },
+          { id: 'failed',   label: 'Failed Subjects' },
+          { id: 'marksheet',label: 'Marksheet'      },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={styles.navBtn(activeTab === tab.id)}
+          >
+            {tab.label}
+            {tab.id === 'failed' && failed.length > 0 && (
+              <span style={styles.badge}>{failed.length}</span>
+            )}
+          </button>
+        ))}
+
+        <button onClick={logout} style={{ ...styles.navBtn(false), marginTop: 'auto', color: '#ff6060' }}>
+          Sign Out
+        </button>
+      </aside>
+
+      {/* Main content */}
+      <main style={styles.main}>
+
+        {/* ── RESULTS TAB ── */}
+        {activeTab === 'results' && (
+          <section>
+            <div style={styles.pageHeader}>
+              <h2 style={styles.h2}>Subject Results</h2>
+              <select
+                value={semester}
+                onChange={e => setSemester(e.target.value)}
+                style={styles.select}
+              >
+                <option value="">All Semesters</option>
+                {semesters.map(s => (
+                  <option key={s} value={s}>Semester {s}</option>
+                ))}
+              </select>
             </div>
-          ) : (
-            <div className="space-y-2">
-              {failed.map((f, i) => (
-                <div key={i} className="flex items-start gap-3 bg-red-50 rounded-xl p-3">
-                  <span className="text-red-500 mt-0.5"><AlertTriangle size={14} /></span>
-                  <div>
-                    <p className="text-sm font-medium text-red-800">{f.course_name}</p>
-                    <p className="text-xs text-red-400 font-mono">{f.course_code} · Sem {f.semester}</p>
-                  </div>
+
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    {['Sem','Course Code','Course Name','CIE','SEE','Total','Grade','Points','Credits'].map(h => (
+                      <th key={h} style={styles.th}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((r, i) => (
+                    <tr key={i} style={r.grade_letter === 'F' ? styles.failRow : styles.row}>
+                      <td style={styles.td}>{r.semester}</td>
+                      <td style={styles.td}><code style={{ color: ACCENT, fontSize: '0.78rem' }}>{r.course_code}</code></td>
+                      <td style={styles.td}>{r.course_name}</td>
+                      <td style={styles.tdNum}>{r.cie_marks ?? '—'}</td>
+                      <td style={styles.tdNum}>{r.see_marks ?? '—'}</td>
+                      <td style={styles.tdNum}><strong>{r.total_marks}</strong></td>
+                      <td style={styles.tdNum}>
+                        <span style={gradeBadge(r.grade_letter)}>{r.grade_letter}</span>
+                      </td>
+                      <td style={styles.tdNum}>{r.grade_points}</td>
+                      <td style={styles.tdNum}>{r.credits}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* ── GPA TAB ── */}
+        {activeTab === 'gpa' && (
+          <section>
+            <h2 style={styles.h2}>GPA Overview</h2>
+
+            {/* CGPA card */}
+            <div style={styles.cgpaCard}>
+              <div style={{ color: '#666', fontSize: '0.7rem', letterSpacing: '0.15em' }}>CGPA</div>
+              <div style={{ fontSize: '3rem', fontWeight: '700', color: ACCENT, lineHeight: 1.1 }}>
+                {cgpaData?.cgpa ?? '—'}
+              </div>
+              {cgpaData?.failed_count > 0 && (
+                <div style={{ color: '#ff6060', fontSize: '0.75rem', marginTop: '0.4rem' }}>
+                  {cgpaData.failed_count} failed subject{cgpaData.failed_count > 1 ? 's' : ''}
+                </div>
+              )}
+            </div>
+
+            {/* SGPA per semester */}
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '1.5rem' }}>
+              {sgpaList.map(({ semester, sgpa }) => (
+                <div key={semester} style={styles.sgpaCard}>
+                  <div style={{ color: '#555', fontSize: '0.65rem', letterSpacing: '0.12em' }}>SEM {semester}</div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: '700', color: sgpaColor(sgpa) }}>{sgpa}</div>
+                  <div style={{ fontSize: '0.65rem', color: '#444' }}>SGPA</div>
                 </div>
               ))}
             </div>
-          )}
-        </div>
-      </div>
 
-      {/* Latest semester results */}
-      {recent.length > 0 && (
-        <div className="card fade-in-delay-2">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="font-display font-semibold text-navy-950 text-lg">Semester {maxSem} Results</h3>
-              <p className="text-slate-400 text-xs mt-0.5">Your most recent semester</p>
+            {/* Mini bar chart */}
+            {sgpaList.length > 0 && (
+              <div style={{ marginTop: '2rem' }}>
+                <div style={{ color: '#444', fontSize: '0.7rem', letterSpacing: '0.1em', marginBottom: '0.8rem' }}>
+                  SGPA TREND
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.6rem', height: '100px' }}>
+                  {sgpaList.map(({ semester, sgpa }) => (
+                    <div key={semester} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
+                      <div style={{ fontSize: '0.6rem', color: '#666', marginBottom: '3px' }}>{sgpa}</div>
+                      <div style={{
+                        width:        '100%',
+                        height:       `${(sgpa / 10) * 80}px`,
+                        background:   `linear-gradient(to top, ${ACCENT}cc, ${ACCENT}44)`,
+                        borderRadius: '3px 3px 0 0',
+                        minHeight:    '4px',
+                      }} />
+                      <div style={{ fontSize: '0.6rem', color: '#555', marginTop: '4px' }}>S{semester}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ── FAILED TAB ── */}
+        {activeTab === 'failed' && (
+          <section>
+            <h2 style={styles.h2}>Failed Subjects</h2>
+            {failed.length === 0 ? (
+              <div style={styles.emptyState}>
+                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>✓</div>
+                No failed subjects. Keep it up.
+              </div>
+            ) : (
+              <div style={styles.tableWrap}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      {['Semester','Course Code','Course Name','CIE','SEE','Total'].map(h => (
+                        <th key={h} style={styles.th}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {failed.map((r, i) => (
+                      <tr key={i} style={styles.failRow}>
+                        <td style={styles.td}>{r.semester}</td>
+                        <td style={styles.td}><code style={{ color: '#ff6060', fontSize: '0.78rem' }}>{r.course_code}</code></td>
+                        <td style={styles.td}>{r.course_name}</td>
+                        <td style={styles.tdNum}>{r.cie_marks ?? '—'}</td>
+                        <td style={styles.tdNum}>{r.see_marks ?? '—'}</td>
+                        <td style={styles.tdNum}><strong style={{ color: '#ff6060' }}>{r.total_marks}</strong></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ── MARKSHEET TAB ── */}
+        {activeTab === 'marksheet' && (
+          <section>
+            <h2 style={styles.h2}>Download Marksheet</h2>
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+              {semesters.map(sem => (
+                <button
+                  key={sem}
+                  onClick={() => downloadMarksheet(sem)}
+                  disabled={dlLoading === sem}
+                  style={styles.dlBtn(dlLoading === sem)}
+                >
+                  {dlLoading === sem ? 'Generating...' : `Semester ${sem}  ↓`}
+                </button>
+              ))}
             </div>
-            <Link to="/student/results" className="btn-secondary text-xs">View all</Link>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Course</th>
-                  <th>Subject</th>
-                  <th>CIE</th>
-                  <th>SEE</th>
-                  <th>Total</th>
-                  <th>Grade</th>
-                  <th>Credits</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map((r, i) => (
-                  <tr key={i}>
-                    <td className="font-mono text-xs text-slate-500">{r.course_code}</td>
-                    <td className="font-medium text-slate-800">{r.course_name}</td>
-                    <td>{r.cie_marks ?? '—'}</td>
-                    <td>{r.see_marks ?? '—'}</td>
-                    <td className="font-semibold">{r.total_marks}</td>
-                    <td>
-                      <span className={`badge text-xs font-semibold px-2.5 py-1 rounded-lg ${gradeClass(r.grade_letter)}`}>
-                        {r.grade_letter}
-                      </span>
-                    </td>
-                    <td>{r.credits}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+            <p style={{ color: '#444', fontSize: '0.75rem', marginTop: '1.5rem' }}>
+              PDF marksheets are generated on demand. Each download reflects the latest recorded marks.
+            </p>
+          </section>
+        )}
+
+      </main>
     </div>
   );
 }
 
-function StatCard({ icon, label, value, sub, accent }) {
+// ── Styles ──────────────────────────────────────────────────────────────────
+
+const styles = {
+  shell: {
+    display:    'flex',
+    minHeight:  '100vh',
+    background: '#0d0f14',
+    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+    color:      '#c8c8c8',
+  },
+  sidebar: {
+    width:          '230px',
+    minHeight:      '100vh',
+    background:     '#10131a',
+    borderRight:    '1px solid #1e2130',
+    display:        'flex',
+    flexDirection:  'column',
+    padding:        '1.5rem 0',
+    flexShrink:     0,
+  },
+  logo: {
+    fontSize:      '0.85rem',
+    fontWeight:    '700',
+    padding:       '0 1.2rem',
+    marginBottom:  '1.5rem',
+    letterSpacing: '0.05em',
+  },
+  navBtn: (active) => ({
+    display:       'block',
+    width:         '100%',
+    padding:       '0.65rem 1.2rem',
+    background:    active ? `${ACCENT}18` : 'transparent',
+    border:        'none',
+    borderLeft:    active ? `2px solid ${ACCENT}` : '2px solid transparent',
+    color:         active ? ACCENT : '#555',
+    fontSize:      '0.75rem',
+    cursor:        'pointer',
+    textAlign:     'left',
+    fontFamily:    'inherit',
+    letterSpacing: '0.05em',
+    display:       'flex',
+    alignItems:    'center',
+    gap:           '0.5rem',
+  }),
+  badge: {
+    background:   '#ff4d4d',
+    color:        '#fff',
+    borderRadius: '9px',
+    padding:      '1px 6px',
+    fontSize:     '0.6rem',
+    marginLeft:   'auto',
+  },
+  main: {
+    flex:     1,
+    padding:  '2rem 2.5rem',
+    overflowY: 'auto',
+  },
+  pageHeader: {
+    display:       'flex',
+    alignItems:    'center',
+    gap:           '1rem',
+    marginBottom:  '1.2rem',
+    flexWrap:      'wrap',
+  },
+  h2: {
+    fontSize:      '1rem',
+    fontWeight:    '600',
+    color:         '#e0e0e0',
+    letterSpacing: '0.05em',
+    margin:        0,
+  },
+  select: {
+    background:   '#1a1d24',
+    border:       '1px solid #2a2d36',
+    color:        '#aaa',
+    padding:      '0.35rem 0.7rem',
+    borderRadius: '4px',
+    fontSize:     '0.75rem',
+    fontFamily:   'inherit',
+    cursor:       'pointer',
+  },
+  tableWrap: {
+    overflowX:    'auto',
+    borderRadius: '6px',
+    border:       '1px solid #1e2130',
+  },
+  table: {
+    width:           '100%',
+    borderCollapse:  'collapse',
+    fontSize:        '0.78rem',
+  },
+  th: {
+    background:    '#13161e',
+    color:         '#555',
+    padding:       '0.6rem 0.8rem',
+    textAlign:     'left',
+    fontWeight:    '500',
+    letterSpacing: '0.08em',
+    fontSize:      '0.67rem',
+    whiteSpace:    'nowrap',
+    borderBottom:  '1px solid #1e2130',
+  },
+  td: {
+    padding:       '0.55rem 0.8rem',
+    borderBottom:  '1px solid #181b22',
+    color:         '#bbb',
+    whiteSpace:    'nowrap',
+  },
+  tdNum: {
+    padding:       '0.55rem 0.8rem',
+    borderBottom:  '1px solid #181b22',
+    color:         '#bbb',
+    textAlign:     'right',
+    whiteSpace:    'nowrap',
+  },
+  row:     { background: 'transparent' },
+  failRow: { background: '#ff4d4d08' },
+  cgpaCard: {
+    background:   '#13161e',
+    border:       `1px solid ${ACCENT}33`,
+    borderRadius: '8px',
+    padding:      '1.5rem 2rem',
+    display:      'inline-block',
+    marginTop:    '0.5rem',
+  },
+  sgpaCard: {
+    background:   '#13161e',
+    border:       '1px solid #1e2130',
+    borderRadius: '6px',
+    padding:      '1rem 1.5rem',
+    minWidth:     '90px',
+    textAlign:    'center',
+  },
+  emptyState: {
+    textAlign:  'center',
+    color:      ACCENT,
+    padding:    '3rem',
+    fontSize:   '0.85rem',
+  },
+  dlBtn: (disabled) => ({
+    padding:      '0.65rem 1.4rem',
+    background:   disabled ? '#1a1d24' : `${ACCENT}22`,
+    border:       `1px solid ${disabled ? '#2a2d36' : ACCENT + '55'}`,
+    color:        disabled ? '#444' : ACCENT,
+    borderRadius: '4px',
+    cursor:       disabled ? 'not-allowed' : 'pointer',
+    fontSize:     '0.78rem',
+    fontFamily:   'inherit',
+    letterSpacing:'0.05em',
+  }),
+};
+
+function gradeBadge(letter) {
+  const colors = {
+    'O': '#00e5a0', 'A+': '#4fc3f7', 'A': '#81d4fa',
+    'B+': '#ffb74d', 'B': '#ffd54f', 'C': '#e0e0e0',
+    'D': '#bdbdbd',  'E': '#9e9e9e', 'F': '#ff5252',
+  };
+  return {
+    background:   `${colors[letter] || '#888'}22`,
+    color:        colors[letter] || '#888',
+    borderRadius: '4px',
+    padding:      '1px 6px',
+    fontSize:     '0.72rem',
+    fontWeight:   '600',
+  };
+}
+
+function sgpaColor(sgpa) {
+  if (sgpa >= 8.5) return '#00e5a0';
+  if (sgpa >= 7)   return '#4fc3f7';
+  if (sgpa >= 5.5) return '#ffb74d';
+  return '#ff5252';
+}
+
+function Loader() {
   return (
-    <div className="stat-card fade-in">
-      <div className={`w-10 h-10 rounded-xl ${accent} flex items-center justify-center mb-2`}>
-        {icon}
-      </div>
-      <div className="text-2xl font-display font-bold text-navy-950">{value}</div>
-      <div className="text-sm font-medium text-slate-700">{label}</div>
-      <div className="text-xs text-slate-400">{sub}</div>
+    <div style={{ minHeight: '100vh', background: '#0d0f14', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', color: '#333' }}>
+      Loading...
     </div>
   );
 }
