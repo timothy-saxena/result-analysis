@@ -1,51 +1,104 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth } from './context/AuthContext';
-import LoginPage from './pages/LoginPage';
-import StudentLayout from './pages/student/StudentLayout';
-import StudentDashboard from './pages/student/StudentDashboard';
-import StudentResults from './pages/student/StudentResults';
-import StudentMarksheet from './pages/student/StudentMarksheet';
-import FacultyLayout from './pages/faculty/FacultyLayout';
-import FacultyDashboard from './pages/faculty/FacultyDashboard';
-import AdminLayout from './pages/admin/AdminLayout';
-import AdminDashboard from './pages/admin/AdminDashboard';
+// src/App.jsx
+// Minimal client-side router — no external routing library needed
 
-const ProtectedRoute = ({ children, allowedRole }) => {
-  const { user, loading } = useAuth();
-  if (loading) return <div className="flex items-center justify-center h-screen text-slate-400 text-sm">Loading...</div>;
-  if (!user) return <Navigate to="/login" replace />;
-  if (allowedRole && user.role !== allowedRole) return <Navigate to="/login" replace />;
-  return children;
-};
+import Login           from './pages/Login';
+import StudentDashboard from './pages/student/StudentDashboard';
+import FacultyDashboard from './pages/faculty/FacultyDashboard';
+import { getToken, getUser } from './utils/api';
+
+function getPage() {
+  const path = window.location.pathname;
+  if (path.startsWith('/student'))  return 'student';
+  if (path.startsWith('/faculty'))  return 'faculty';
+  if (path.startsWith('/admin'))    return 'admin';
+  if (path.startsWith('/login'))    return 'login';
+  return 'home';
+}
+
+function requireAuth(role) {
+  const token = getToken();
+  const user  = getUser();
+  if (!token || !user) {
+    window.location.href = `/login?role=${role}`;
+    return false;
+  }
+  if (user.role !== role) {
+    window.location.href = `/login?role=${role}`;
+    return false;
+  }
+  return true;
+}
 
 export default function App() {
-  const { user } = useAuth();
+  const page = getPage();
 
+  if (page === 'student') {
+    if (!requireAuth('student')) return null;
+    return <StudentDashboard />;
+  }
+
+  if (page === 'faculty') {
+    if (!requireAuth('faculty')) return null;
+    return <FacultyDashboard />;
+  }
+
+  if (page === 'admin') {
+    // Admin dashboard is Sub-Part E — Timothy's work
+    if (!requireAuth('admin')) return null;
+    return (
+      <div style={{ minHeight: '100vh', background: '#0d0f14', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', color: '#444' }}>
+        Admin dashboard — coming soon
+      </div>
+    );
+  }
+
+  if (page === 'login') {
+    return <Login />;
+  }
+
+  // Home — redirect to login role selector
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-
-      {/* Student routes */}
-      <Route path="/student" element={<ProtectedRoute allowedRole="student"><StudentLayout /></ProtectedRoute>}>
-        <Route index element={<StudentDashboard />} />
-        <Route path="results" element={<StudentResults />} />
-        <Route path="marksheet" element={<StudentMarksheet />} />
-      </Route>
-
-      {/* Faculty routes */}
-      <Route path="/faculty" element={<ProtectedRoute allowedRole="faculty"><FacultyLayout /></ProtectedRoute>}>
-        <Route index element={<FacultyDashboard />} />
-      </Route>
-
-      {/* Admin routes */}
-      <Route path="/admin" element={<ProtectedRoute allowedRole="admin"><AdminLayout /></ProtectedRoute>}>
-        <Route index element={<AdminDashboard />} />
-      </Route>
-
-      {/* Default redirect */}
-      <Route path="*" element={
-        user ? <Navigate to={`/${user.role}`} replace /> : <Navigate to="/login" replace />
-      } />
-    </Routes>
+    <div style={{
+      minHeight:      '100vh',
+      background:     '#0d0f14',
+      display:        'flex',
+      flexDirection:  'column',
+      alignItems:     'center',
+      justifyContent: 'center',
+      fontFamily:     "'JetBrains Mono', monospace",
+      gap:            '1rem',
+    }}>
+      <div style={{ color: '#e0e0e0', fontSize: '1.1rem', fontWeight: '600', letterSpacing: '0.05em' }}>
+        MGIT Result Analysis
+      </div>
+      <div style={{ color: '#444', fontSize: '0.75rem', letterSpacing: '0.1em', marginBottom: '1rem' }}>
+        SELECT YOUR ROLE TO CONTINUE
+      </div>
+      {[
+        { role: 'student', label: 'Student Portal',  accent: '#00e5a0' },
+        { role: 'faculty', label: 'Faculty Portal',  accent: '#f5a623' },
+        { role: 'admin',   label: 'Admin Portal',    accent: '#7c6af7' },
+      ].map(({ role, label, accent }) => (
+        <a
+          key={role}
+          href={`/login?role=${role}`}
+          style={{
+            display:        'block',
+            padding:        '0.7rem 2rem',
+            background:     `${accent}18`,
+            border:         `1px solid ${accent}44`,
+            color:          accent,
+            borderRadius:   '5px',
+            textDecoration: 'none',
+            fontSize:       '0.8rem',
+            letterSpacing:  '0.08em',
+            width:          '220px',
+            textAlign:      'center',
+          }}
+        >
+          {label}
+        </a>
+      ))}
+    </div>
   );
 }
