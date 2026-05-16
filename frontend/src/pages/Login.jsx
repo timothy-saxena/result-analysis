@@ -145,7 +145,7 @@ export default function Login() {
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="Enter password"
               required
               style={inputStyle(cfg.accent)}
             />
