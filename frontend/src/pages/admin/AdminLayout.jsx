@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom';
+/* import { Outlet } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import Sidebar from '../../components/Sidebar';
 import { LayoutDashboard } from 'lucide-react';
@@ -15,4 +15,10 @@ export default function AdminLayout() {
       <main className="page-content"><Outlet /></main>
     </div>
   );
+}
+ */
+import { Outlet } from "react-router-dom";
+
+export default function AdminLayout() {
+    return <Outlet />;
 }
