@@ -39,8 +39,11 @@ export default function App() {
     }
 
     if (page === "faculty") {
-        if (!requireAuth("faculty")) return null;
+        /*         if (!requireAuth("faculty")) return null;
         return <FacultyDashboard />;
+         */
+        window.location.href = "/login?role=student";
+        return null;
     }
 
     if (page === "admin") {
