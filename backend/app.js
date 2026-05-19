@@ -12,6 +12,7 @@ app.use(
         origin: [
             "http://localhost:5173",
             "https://result-analysis-timothy-saxenas-projects.vercel.app",
+            "https://result-analysis-three.vercel.app",
         ],
     }),
 );
