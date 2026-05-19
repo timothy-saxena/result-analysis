@@ -1,8 +1,9 @@
 // src/utils/api.js
 // Central API helper — all fetch calls go through here
 
-const BASE = "http://localhost:5000/api";
-
+/* const BASE = "http://localhost:5000/api";
+ */
+const BASE = 'https://result-analysis-backend.onrender.com/api';
 export function getToken() {
     return localStorage.getItem("ra_token");
 }
