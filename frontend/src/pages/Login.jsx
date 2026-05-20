@@ -74,7 +74,7 @@ export default function Login() {
     }}>
       {/* Role switcher tabs */}
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2.5rem' }}>
-        {['student', 'faculty', 'admin'].map(r => (
+        {['student', 'admin'].map(r => (
           <a
             key={r}
             href={`/login?role=${r}`}

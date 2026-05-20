@@ -87,7 +87,6 @@ export default function App() {
             </div>
             {[
                 { role: "student", label: "Student Portal", accent: "#00e5a0" },
-                { role: "faculty", label: "Faculty Portal", accent: "#f5a623" },
                 { role: "admin", label: "Admin Portal", accent: "#7c6af7" },
             ].map(({ role, label, accent }) => (
                 <a

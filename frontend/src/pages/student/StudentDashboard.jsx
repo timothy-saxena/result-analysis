@@ -180,7 +180,7 @@ export default function StudentDashboard() {
             <h2 style={S.h2}>Dashboard</h2>
 
             <div style={S.sectionLabel2}>LATEST SEMESTER {latestSem ? `— SEM ${latestSem}` : ''}</div>
-            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', gap: '1.0rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
 
               <div style={{ ...S.bigCard, borderColor: `${ACCENT}44` }}>
                 <div style={S.cardLabel}>SGPA</div>
@@ -206,15 +206,13 @@ export default function StudentDashboard() {
                 <div style={{ color: '#444', fontSize: '0.68rem', marginTop: '0.3rem' }}>subjects this sem</div>
               </div>
 
-              {latestFailed > 0 && (
-                <div style={{ ...S.bigCard, borderColor: '#ff525244' }}>
-                  <div style={{ ...S.cardLabel, color: '#ff5252' }}>FAILED</div>
-                  <div style={{ fontSize: '2.6rem', fontWeight: '700', color: '#ff5252', lineHeight: 1.1 }}>
-                    {latestFailed}
-                  </div>
-                  <div style={{ color: '#444', fontSize: '0.68rem', marginTop: '0.3rem' }}>subjects this sem</div>
+              <div style={{ ...S.bigCard, borderColor: '#ff525244' }}>
+                <div style={{ ...S.cardLabel, color: '#ff5252' }}>FAILED</div>
+                <div style={{ fontSize: '2.6rem', fontWeight: '700', color: '#ff5252', lineHeight: 1.1 }}>
+                  {latestFailed}
                 </div>
-              )}
+                <div style={{ color: '#444', fontSize: '0.68rem', marginTop: '0.3rem' }}>subjects this sem</div>
+              </div>
 
               {rankData?.batch_rank && (
                 <div style={S.bigCard}>
@@ -362,61 +360,128 @@ export default function StudentDashboard() {
                   </div>
                 </div>
               )}
-              {rankData?.section_rank && (
-                <div style={S.bigCard}>
-                  <div style={S.cardLabel}>SECTION RANK</div>
-                  <div style={{ fontSize: '2.8rem', fontWeight: '700', color: '#f5a623', lineHeight: 1.1 }}>
-                    #{rankData.section_rank}
-                  </div>
-                  <div style={{ color: '#444', fontSize: '0.7rem', marginTop: '0.3rem' }}>
-                    of {rankData.section_total} · {rankData.section}
-                  </div>
-                </div>
-              )}
             </div>
 
-            {sgpaList.length > 0 && (
-              <>
-                <div style={{ ...S.sectionLabel, marginTop: '2rem' }}>SEMESTER GPA</div>
-                <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap' }}>
-                  {sgpaList.map(({ semester, sgpa }) => (
-                    <div key={semester} style={S.sgpaCard}>
-                      <div style={{ color: '#555', fontSize: '0.62rem', letterSpacing: '0.1em' }}>SEM {semester}</div>
-                      <div style={{ fontSize: '1.6rem', fontWeight: '700', color: sgpaColor(sgpa), lineHeight: 1.1 }}>{sgpa}</div>
-                      <div style={{ color: '#444', fontSize: '0.62rem', marginTop: '0.1rem' }}>SGPA</div>
-                    </div>
-                  ))}
-                </div>
+            {sgpaList.length > 0 && (() => {
+              // ── Linear regression projection ──────────────────────────────────
+              // y = mx + b where x = semester index (0-based), y = sgpa
+              const n = sgpaList.length;
+              const xs = sgpaList.map((_, i) => i);
+              const ys = sgpaList.map(d => d.sgpa);
+              const sumX  = xs.reduce((a, b) => a + b, 0);
+              const sumY  = ys.reduce((a, b) => a + b, 0);
+              const sumXY = xs.reduce((a, x, i) => a + x * ys[i], 0);
+              const sumX2 = xs.reduce((a, x) => a + x * x, 0);
+              const m = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+              const b = (sumY - m * sumX) / n;
+              const project = (idx) => parseFloat(Math.min(10, Math.max(0, m * idx + b)).toFixed(2));
 
-                {/* SGPA bar chart */}
-                <div style={{ marginTop: '2rem' }}>
-                  <div style={S.sectionLabel}>SGPA TREND</div>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.5rem', height: '120px', marginTop: '0.5rem' }}>
+              // Determine how many future sems to project
+              const totalSems = 8;
+              const doneSems  = sgpaList.length;
+              const year      = rankData?.year ?? 0;
+              // Only project for year 3 (up to sem 8) and year 4 (only if sem 7 done, project sem 8)
+              const projCount = (year === 3 || year === 4) ? Math.max(0, totalSems - doneSems) : 0;
+              const projectedSems = Array.from({ length: projCount }, (_, i) => ({
+                semester: doneSems + i + 1,
+                sgpa:     project(doneSems + i),
+                projected: true,
+              }));
+
+              // Cumulative CGPA projection
+              const lastCGPA  = cumulativeCGPA.length > 0 ? cumulativeCGPA[cumulativeCGPA.length - 1].cgpa : 0;
+              // Running weighted estimate: assume avg credits per sem stays same
+              const avgCredits = (() => {
+                const totalCr = results.reduce((a, r) => a + Number(r.credits), 0);
+                return doneSems > 0 ? totalCr / doneSems : 20;
+              })();
+              let runningWeighted = lastCGPA * doneSems * avgCredits;
+              let runningCredits  = doneSems * avgCredits;
+              const projCGPA = projectedSems.map(ps => {
+                const projGP = ps.sgpa; // approximation: treat projected SGPA as avg grade points
+                runningWeighted += projGP * avgCredits;
+                runningCredits  += avgCredits;
+                return {
+                  semester:  ps.semester,
+                  cgpa:      parseFloat((runningWeighted / runningCredits).toFixed(2)),
+                  projected: true,
+                };
+              });
+
+              const allBars   = [...sgpaList.map(d => ({ ...d, projected: false })), ...projectedSems];
+              const allCGPA   = [...cumulativeCGPA, ...projCGPA];
+
+              return (
+                <>
+                  {/* ── SGPA cards ── */}
+                  <div style={{ ...S.sectionLabel, marginTop: '2rem' }}>SEMESTER GPA</div>
+                  <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap' }}>
                     {sgpaList.map(({ semester, sgpa }) => (
-                      <div key={semester} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, maxWidth: '64px' }}>
-                        <div style={{ color: sgpaColor(sgpa), fontSize: '0.62rem', marginBottom: '3px' }}>{sgpa}</div>
-                        <div style={{
-                          width: '100%',
-                          height: `${(sgpa / 10) * 96}px`,
-                          maxHeight: '96px', minHeight: '4px',
-                          background: `linear-gradient(to top, ${sgpaColor(sgpa)}dd, ${sgpaColor(sgpa)}44)`,
-                          borderRadius: '3px 3px 0 0',
-                        }} />
-                        <div style={{ color: '#555', fontSize: '0.6rem', marginTop: '4px' }}>S{semester}</div>
+                      <div key={semester} style={S.sgpaCard}>
+                        <div style={{ color: '#555', fontSize: '0.62rem', letterSpacing: '0.1em' }}>SEM {semester}</div>
+                        <div style={{ fontSize: '1.6rem', fontWeight: '700', color: sgpaColor(sgpa), lineHeight: 1.1 }}>{sgpa}</div>
+                        <div style={{ color: '#444', fontSize: '0.62rem', marginTop: '0.1rem' }}>SGPA</div>
+                      </div>
+                    ))}
+                    {projectedSems.map(({ semester, sgpa }) => (
+                      <div key={`p${semester}`} style={{ ...S.sgpaCard, border: '1px dashed #2a3a4a', background: '#0d1117' }}>
+                        <div style={{ color: '#2a4a5a', fontSize: '0.62rem', letterSpacing: '0.1em' }}>SEM {semester}</div>
+                        <div style={{ fontSize: '1.6rem', fontWeight: '700', color: '#4a7a9b', lineHeight: 1.1 }}>{sgpa}</div>
+                        <div style={{ color: '#2a4a5a', fontSize: '0.62rem', marginTop: '0.1rem' }}>PROJ</div>
                       </div>
                     ))}
                   </div>
-                </div>
 
-                {/* CGPA cumulative line chart — only meaningful with 2+ semesters */}
-                {cumulativeCGPA.length > 1 && (
-                  <div style={{ marginTop: '2.5rem' }}>
-                    <div style={S.sectionLabel}>CGPA CUMULATIVE TREND</div>
-                    <CumulativeLineChart data={cumulativeCGPA} />
+                  {/* ── SGPA bar chart with projections ── */}
+                  <div style={{ marginTop: '2rem' }}>
+                    <div style={S.sectionLabel}>SGPA TREND</div>
+                    {projectedSems.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1.2rem', marginBottom: '0.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          <div style={{ width: '10px', height: '10px', background: ACCENT, borderRadius: '2px' }} />
+                          <span style={{ color: '#444', fontSize: '0.6rem' }}>Actual</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          <div style={{ width: '10px', height: '10px', background: '#4a7a9b', borderRadius: '2px', border: '1px dashed #4a7a9b' }} />
+                          <span style={{ color: '#444', fontSize: '0.6rem' }}>Projected (linear regression)</span>
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.5rem', height: '120px', marginTop: '0.5rem' }}>
+                      {allBars.map(({ semester, sgpa, projected }) => (
+                        <div key={semester} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, maxWidth: '64px' }}>
+                          <div style={{ color: projected ? '#4a7a9b' : sgpaColor(sgpa), fontSize: '0.62rem', marginBottom: '3px' }}>{sgpa}</div>
+                          <div style={{
+                            width:        '100%',
+                            height:       `${(sgpa / 10) * 96}px`,
+                            maxHeight:    '96px',
+                            minHeight:    '4px',
+                            background:   projected
+                              ? 'linear-gradient(to top, #4a7a9b88, #4a7a9b33)'
+                              : `linear-gradient(to top, ${sgpaColor(sgpa)}dd, ${sgpaColor(sgpa)}44)`,
+                            borderRadius: '3px 3px 0 0',
+                            border:       projected ? '1px dashed #4a7a9b55' : 'none',
+                            borderBottom: 'none',
+                            boxSizing:    'border-box',
+                          }} />
+                          <div style={{ color: projected ? '#2a4a5a' : '#555', fontSize: '0.6rem', marginTop: '4px' }}>
+                            S{semester}{projected ? '*' : ''}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                )}
-              </>
-            )}
+
+                  {/* ── CGPA cumulative trend — scales width with semester count ── */}
+                  {allCGPA.length > 1 && (
+                    <div style={{ marginTop: '2.5rem' }}>
+                      <div style={S.sectionLabel}>CGPA CUMULATIVE TREND</div>
+                      <CumulativeLineChart data={allCGPA} />
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </section>
         )}
 
@@ -512,53 +577,94 @@ export default function StudentDashboard() {
 // ── CGPA Cumulative Line Chart — pure SVG, zero dependencies ─────────────────
 
 function CumulativeLineChart({ data }) {
-  const W  = 520, H = 150;
-  const PAD = { top: 22, right: 24, bottom: 30, left: 42 };
+  // Width scales with number of data points — min 520, grows by 60px per point beyond 6
+  const W   = Math.max(520, 300 + data.length * 100);
+  const H   = 220;
+  const PAD = { top: 22, right: 32, bottom: 30, left: 42 };
   const cW  = W - PAD.left - PAD.right;
   const cH  = H - PAD.top  - PAD.bottom;
 
-  const vals    = data.map(d => d.cgpa);
-  const minVal  = Math.max(0,  Math.min(...vals) - 0.5);
-  const maxVal  = Math.min(10, Math.max(...vals) + 0.5);
-  const range   = maxVal - minVal || 1;
+  const vals   = data.map(d => d.cgpa);
+  const minVal = Math.max(0,  Math.min(...vals) - 0.5);
+  const maxVal = Math.min(10, Math.max(...vals) + 0.5);
+  const range  = maxVal - minVal || 1;
 
-  const xS = i    => PAD.left + (data.length > 1 ? (i / (data.length - 1)) * cW : cW / 2);
-  const yS = val  => PAD.top  + cH - ((val - minVal) / range) * cH;
+  const xS = i   => PAD.left + (data.length > 1 ? (i / (data.length - 1)) * cW : cW / 2);
+  const yS = val => PAD.top  + cH - ((val - minVal) / range) * cH;
 
-  const pts      = data.map((d, i) => `${xS(i)},${yS(d.cgpa)}`).join(' ');
-  const areaFill = `${pts} ${xS(data.length - 1)},${PAD.top + cH} ${xS(0)},${PAD.top + cH}`;
+  // Split into actual and projected segments
+  const actualData    = data.filter(d => !d.projected);
+  const projectedData = data.filter(d => d.projected);
+  const splitIdx      = actualData.length - 1; // last actual point index
 
+  const actualPts   = actualData.map((d, i) => `${xS(i)},${yS(d.cgpa)}`).join(' ');
+  // Projected line starts from last actual point
+  const projPts     = projectedData.length > 0
+    ? [`${xS(splitIdx)},${yS(actualData[splitIdx]?.cgpa ?? data[splitIdx]?.cgpa)}`]
+        .concat(projectedData.map((d, i) => `${xS(splitIdx + 1 + i)},${yS(d.cgpa)}`))
+        .join(' ')
+    : '';
+
+  const areaFill = `${actualPts} ${xS(actualData.length - 1)},${PAD.top + cH} ${xS(0)},${PAD.top + cH}`;
   const yTicks   = [minVal, (minVal + maxVal) / 2, maxVal].map(v => parseFloat(v.toFixed(1)));
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: `${W}px`, height: `${H}px`, display: 'block' }}>
-      {/* Grid + Y labels */}
-      {yTicks.map(t => (
-        <g key={t}>
-          <line x1={PAD.left} y1={yS(t)} x2={PAD.left + cW} y2={yS(t)} stroke="#161b22" strokeWidth="1" />
-          <text x={PAD.left - 6} y={yS(t) + 4} fill="#444" fontSize="9" textAnchor="end">{t}</text>
-        </g>
-      ))}
+    <div style={{ overflowX: 'auto' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', minWidth: `${Math.min(W, 520)}px`, height: `${H}px`, display: 'block' }}>
+        {/* Grid + Y labels */}
+        {yTicks.map(t => (
+          <g key={t}>
+            <line x1={PAD.left} y1={yS(t)} x2={PAD.left + cW} y2={yS(t)} stroke="#161b22" strokeWidth="1" />
+            <text x={PAD.left - 6} y={yS(t) + 4} fill="#444" fontSize="9" textAnchor="end">{t}</text>
+          </g>
+        ))}
 
-      {/* Area fill */}
-      <polygon points={areaFill} fill="#4fc3f711" />
+        {/* Area fill — actual only */}
+        <polygon points={areaFill} fill="#4fc3f711" />
 
-      {/* Line */}
-      <polyline points={pts} fill="none" stroke="#4fc3f7" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        {/* Actual line */}
+        <polyline points={actualPts} fill="none" stroke="#4fc3f7" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
 
-      {/* Points + value labels + X labels */}
-      {data.map((d, i) => (
-        <g key={i}>
-          <circle cx={xS(i)} cy={yS(d.cgpa)} r="3.5" fill="#4fc3f7" />
-          <text x={xS(i)} y={yS(d.cgpa) - 8} fill="#4fc3f7" fontSize="9" textAnchor="middle">{d.cgpa}</text>
-          <text x={xS(i)} y={PAD.top + cH + 14} fill="#555" fontSize="9" textAnchor="middle">S{d.semester}</text>
-        </g>
-      ))}
+        {/* Projected line — dashed */}
+        {projPts && (
+          <polyline points={projPts} fill="none" stroke="#4a7a9b" strokeWidth="2"
+            strokeDasharray="5,3" strokeLinejoin="round" strokeLinecap="round" />
+        )}
 
-      {/* Axes */}
-      <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + cH} stroke="#21262d" strokeWidth="1" />
-      <line x1={PAD.left} y1={PAD.top + cH} x2={PAD.left + cW} y2={PAD.top + cH} stroke="#21262d" strokeWidth="1" />
-    </svg>
+        {/* Points, labels, x-axis labels */}
+        {data.map((d, i) => (
+          <g key={i}>
+            <circle cx={xS(i)} cy={yS(d.cgpa)} r="3.5"
+              fill={d.projected ? '#4a7a9b' : '#4fc3f7'}
+              strokeDasharray={d.projected ? '2,2' : 'none'} />
+            <text x={xS(i)} y={yS(d.cgpa) - 8} fill={d.projected ? '#4a7a9b' : '#4fc3f7'}
+              fontSize="9" textAnchor="middle">
+              {d.cgpa}{d.projected ? '*' : ''}
+            </text>
+            <text x={xS(i)} y={PAD.top + cH + 14} fill={d.projected ? '#2a4a5a' : '#555'}
+              fontSize="9" textAnchor="middle">
+              S{d.semester}{d.projected ? '*' : ''}
+            </text>
+          </g>
+        ))}
+
+        {/* Axes */}
+        <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + cH} stroke="#21262d" strokeWidth="1" />
+        <line x1={PAD.left} y1={PAD.top + cH} x2={PAD.left + cW} y2={PAD.top + cH} stroke="#21262d" strokeWidth="1" />
+
+        {/* Legend */}
+        {projPts && (
+          <g>
+            <line x1={PAD.left} y1={PAD.top - 10} x2={PAD.left + 16} y2={PAD.top - 10}
+              stroke="#4fc3f7" strokeWidth="2" />
+            <text x={PAD.left + 20} y={PAD.top - 7} fill="#444" fontSize="8">Actual</text>
+            <line x1={PAD.left + 52} y1={PAD.top - 10} x2={PAD.left + 68} y2={PAD.top - 10}
+              stroke="#4a7a9b" strokeWidth="2" strokeDasharray="4,2" />
+            <text x={PAD.left + 72} y={PAD.top - 7} fill="#444" fontSize="8">Projected *</text>
+          </g>
+        )}
+      </svg>
+    </div>
   );
 }
 
